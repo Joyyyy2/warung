@@ -31,6 +31,9 @@ function getPool() {
     queueLimit: 0,
     decimalNumbers: true,
     charset: "utf8mb4",
+    ssl: {
+      minVersion: "TLSv1.2",
+    },
   });
 
   return databaseGlobal.warungPool;
