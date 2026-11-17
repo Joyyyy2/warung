@@ -435,7 +435,7 @@ export default function Home() {
 
         <div className="shop-switcher">
           <div className="shop-avatar">WK</div>
-          <div className="shop-copy"><strong>Warung Bu Sari</strong><small>Cabang utama</small></div>
+          <div className="shop-copy"><strong>Warung </strong><small>Cabang utama</small></div>
           <Icon name="chevron" size={15} />
         </div>
 
@@ -544,7 +544,7 @@ export default function Home() {
               <div className="page-heading">
                 <div>
                   <p className="eyebrow">{activePage === "Peringatan" ? "PANTAU STOK MENIPIS" : "INVENTARIS WARUNG"}</p>
-                  <h1>{activePage === "Peringatan" ? "Perlu restock, nih." : "Selamat pagi, Bu Sari 👋"}</h1>
+                  <h1>{activePage === "Peringatan" ? "Perlu restock, nih." : "Selamat pagi 👋"}</h1>
                   <p className="heading-subtitle">{activePage === "Peringatan" ? "Cek barang yang sudah menyentuh batas minimum stok." : "Yuk, cek kondisi stok warung hari ini."}</p>
                 </div>
                 <div className="heading-actions">
