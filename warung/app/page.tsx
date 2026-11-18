@@ -27,6 +27,11 @@ type Activity = {
   profit?: number;
 };
 
+type CartLine = {
+  productId: string;
+  quantity: number;
+};
+
 type ProductForm = {
   name: string;
   barcode: string;
@@ -131,6 +136,10 @@ export default function Home() {
   const [adjustError, setAdjustError] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<"Masuk" | "Keluar">("Masuk");
+  const [saleCart, setSaleCart] = useState<CartLine[]>([]);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [saleError, setSaleError] = useState("");
+  const [saleSubmitting, setSaleSubmitting] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState("");
   const [scannerError, setScannerError] = useState("");
   const [cameraMessage, setCameraMessage] = useState("");
@@ -152,13 +161,26 @@ export default function Home() {
     setBarcodeInput("");
     setCameraMessage("");
     if (product) {
-      setAdjustProduct(product);
-      setAdjustMode(scannerModeRef.current);
-      setAdjustAmount("1");
-      setAdjustBuyPrice(String(product.buyPrice));
-      setAdjustSellPrice(String(product.sellPrice));
-      setAdjustError("");
-      setNotice(scannerModeRef.current === "Masuk" ? `Produk ditemukan: ${product.name}` : `Produk ditemukan untuk dicatat keluar: ${product.name}`);
+      if (scannerModeRef.current === "Keluar") {
+        setSaleCart((current) => {
+          const existing = current.find((line) => line.productId === product.id);
+          if (existing) {
+            return current.map((line) => line.productId === product.id ? { ...line, quantity: line.quantity + 1 } : line);
+          }
+          return [...current, { productId: product.id, quantity: 1 }];
+        });
+        setSaleError("");
+        setReceiptOpen(true);
+        setNotice(`${product.name} ditambahkan ke struk.`);
+      } else {
+        setAdjustProduct(product);
+        setAdjustMode("Masuk");
+        setAdjustAmount("1");
+        setAdjustBuyPrice(String(product.buyPrice));
+        setAdjustSellPrice(String(product.sellPrice));
+        setAdjustError("");
+        setNotice(`Produk ditemukan: ${product.name}`);
+      }
     } else {
       openNewProduct(cleanedCode);
       setNotice("Barcode belum terdaftar. Lengkapi form untuk membuat produk baru.");
@@ -188,6 +210,53 @@ export default function Home() {
     scannerModeRef.current = mode;
     setScannerMode(mode);
     setScannerError("");
+  }
+
+  function setSaleQuantity(productId: string, value: string) {
+    const quantity = Number(value);
+    if (value !== "" && (!Number.isSafeInteger(quantity) || quantity < 0)) {
+      return;
+    }
+    setSaleCart((current) => current.map((line) => line.productId === productId ? { ...line, quantity: value === "" ? 0 : quantity } : line));
+    setSaleError(value === "" || quantity === 0 ? "Jumlah setiap barang pada struk harus minimal 1." : "");
+  }
+
+  const receiptLines = useMemo(() => saleCart.flatMap((line) => {
+    const product = products.find((item) => item.id === line.productId);
+    return product ? [{ product, quantity: line.quantity }] : [];
+  }), [saleCart, products]);
+  const receiptTotal = useMemo(() => receiptLines.reduce((sum, line) => sum + line.quantity * line.product.sellPrice, 0), [receiptLines]);
+  const receiptCost = useMemo(() => receiptLines.reduce((sum, line) => sum + line.quantity * line.product.buyPrice, 0), [receiptLines]);
+  const receiptHasInsufficientStock = receiptLines.some((line) => line.quantity <= 0 || line.quantity > line.product.stock);
+
+  async function submitSale() {
+    if (saleSubmitting || !receiptLines.length) return;
+    if (receiptHasInsufficientStock) {
+      setSaleError("Jumlah pada struk melebihi stok tersedia. Sesuaikan jumlah barang terlebih dahulu.");
+      return;
+    }
+    setSaleSubmitting(true);
+    setSaleError("");
+    try {
+      const result = await apiRequest<{ products: Array<{ id: string; stock: number }>; activities: Activity[] }>("/api/sales", {
+        method: "POST",
+        body: JSON.stringify({ items: saleCart }),
+      });
+      setProducts((current) => current.map((product) => {
+        const updated = result.products.find((item) => item.id === product.id);
+        return updated ? { ...product, stock: updated.stock } : product;
+      }));
+      setActivities((current) => [...result.activities].reverse().concat(current));
+      setSaleCart([]);
+      setReceiptOpen(false);
+      setStorageError("");
+      setNotice("Transaksi struk berhasil disimpan.");
+    } catch (error) {
+      console.error("Gagal menyimpan transaksi struk.", error);
+      setSaleError(error instanceof Error ? error.message : "Transaksi gagal disimpan.");
+    } finally {
+      setSaleSubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -671,6 +740,37 @@ export default function Home() {
         </section>
       </div>}
 
+      {receiptOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saleSubmitting) setReceiptOpen(false); }}>
+        <section className="modal-card receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title">
+          <div className="modal-heading">
+            <div><p className="eyebrow">TRANSAKSI BARU</p><h2 id="receipt-modal-title">Struk belanja</h2><p>{receiptLines.length} jenis barang · jumlah bisa diubah sebelum disimpan.</p></div>
+            <button className="modal-close" aria-label="Tutup struk" onClick={() => setReceiptOpen(false)} disabled={saleSubmitting}><Icon name="close" /></button>
+          </div>
+          {receiptLines.length ? <>
+            <div className="receipt-lines">
+              {receiptLines.map(({ product, quantity }) => <div className="receipt-line" key={product.id}>
+                <span className="receipt-product"><strong>{product.name}</strong><small>{currency.format(product.sellPrice)} / {product.unit} · stok {product.stock}</small></span>
+                <label className="receipt-quantity"><span className="sr-only">Jumlah {product.name}</span><input type="number" min="1" max={product.stock} step="1" value={quantity || ""} onChange={(event) => setSaleQuantity(product.id, event.target.value)} /></label>
+                <strong className="receipt-line-total">{currency.format(quantity * product.sellPrice)}</strong>
+                <button className="receipt-remove" type="button" aria-label={`Hapus ${product.name} dari struk`} onClick={() => { setSaleCart((current) => current.filter((line) => line.productId !== product.id)); setSaleError(""); }} disabled={saleSubmitting}><Icon name="close" size={15} /></button>
+              </div>)}
+            </div>
+            {receiptHasInsufficientStock && <p className="form-error receipt-error" role="alert">Jumlah barang tidak valid atau melebihi stok tersedia. Ubah jumlah sebelum menyimpan.</p>}
+            {saleError && <p className="form-error receipt-error" role="alert">{saleError}</p>}
+            <div className="receipt-totals">
+              <div><span>Jumlah barang</span><strong>{receiptLines.reduce((sum, line) => sum + line.quantity, 0)} unit</strong></div>
+              <div><span>Total belanja</span><strong>{currency.format(receiptTotal)}</strong></div>
+              <div className="receipt-profit"><span>Perkiraan keuntungan kotor</span><strong>{currency.format(receiptTotal - receiptCost)}</strong></div>
+            </div>
+          </> : <div className="empty-state receipt-empty">Struk masih kosong. Scan barcode barang untuk menambahkannya.</div>}
+          <div className="modal-actions receipt-actions">
+            <button type="button" className="secondary-button" onClick={() => { setSaleCart([]); setSaleError(""); setReceiptOpen(false); }} disabled={saleSubmitting}>Batalkan struk</button>
+            <button type="button" className="secondary-button" onClick={() => { setReceiptOpen(false); openScanner("Keluar"); }} disabled={saleSubmitting}><Icon name="scan" size={16} /> Scan barang lain</button>
+            <button type="button" className="primary-button" onClick={submitSale} disabled={!receiptLines.length || receiptHasInsufficientStock || saleSubmitting}>{saleSubmitting ? "Menyimpan…" : <><Icon name="check" size={16} /> Simpan penjualan</>}</button>
+          </div>
+        </section>
+      </div>}
+
       {scannerOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setScannerOpen(false); }}>
         <section className="modal-card scanner-modal" role="dialog" aria-modal="true" aria-labelledby="scanner-modal-title">
           <div className="modal-heading"><div><p className="eyebrow">PEMINDAI PRODUK</p><h2 id="scanner-modal-title">Scan barang masuk / keluar</h2><p>Pilih tindakan, lalu arahkan barcode ke kamera atau masukkan kodenya.</p></div><button className="modal-close" aria-label="Tutup" onClick={() => setScannerOpen(false)}><Icon name="close" /></button></div>
@@ -679,7 +779,7 @@ export default function Home() {
             <button type="button" className={scannerMode === "Keluar" ? "selected" : ""} aria-pressed={scannerMode === "Keluar"} onClick={() => changeScannerMode("Keluar")}>Barang keluar</button>
           </div>
           <div className="camera-frame"><video ref={videoRef} muted playsInline aria-label="Pratinjau kamera untuk scan barcode" /><div className="scan-frame"><span /><span /><span /><span /><i /></div><div className="camera-label"><Icon name="camera" size={15} /> <span>{cameraMessage || "Menyiapkan kamera..."}</span>{cameraRetryable && <button type="button" onClick={retryCamera}>Coba lagi</button>}</div></div>
-          <form onSubmit={(event) => { event.preventDefault(); resolveBarcode(barcodeInput); }} className="modal-form scanner-form"><label>Nomor barcode<div className="input-with-action"><input autoFocus value={barcodeInput} onChange={(event) => { setBarcodeInput(event.target.value); setScannerError(""); }} placeholder="Ketik barcode produk..." /><button type="submit" aria-label="Cari barcode"><Icon name="search" size={17} /></button></div></label>{scannerError && <p className="form-error" role="alert">{scannerError}</p>}<p className="scanner-hint"><Icon name="barcode" size={15} />{scannerMode === "Masuk" ? "Barcode baru akan membuka form tambah produk." : "Barcode harus cocok dengan produk yang sudah terdaftar."}</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setScannerOpen(false)}>Batal</button><button type="submit" className="primary-button"><Icon name="scan" size={16} /> Cari produk</button></div></form>
+          <form onSubmit={(event) => { event.preventDefault(); resolveBarcode(barcodeInput); }} className="modal-form scanner-form"><label>Nomor barcode<div className="input-with-action"><input autoFocus value={barcodeInput} onChange={(event) => { setBarcodeInput(event.target.value); setScannerError(""); }} placeholder="Ketik barcode produk..." /><button type="submit" aria-label="Cari barcode"><Icon name="search" size={17} /></button></div></label>{scannerError && <p className="form-error" role="alert">{scannerError}</p>}<p className="scanner-hint"><Icon name="barcode" size={15} />{scannerMode === "Masuk" ? "Barcode baru akan membuka form tambah produk." : "Barcode baru akan membuka form produk; barcode terdaftar ditambahkan ke struk."}</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setScannerOpen(false)}>Batal</button><button type="submit" className="primary-button"><Icon name="scan" size={16} /> Cari produk</button></div></form>
         </section>
       </div>}
     </div>
