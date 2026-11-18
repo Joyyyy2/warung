@@ -141,6 +141,7 @@ export default function Home() {
   const [saleError, setSaleError] = useState("");
   const [saleSubmitting, setSaleSubmitting] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState("");
+  const [manualSaleSearch, setManualSaleSearch] = useState("");
   const [scannerError, setScannerError] = useState("");
   const [cameraMessage, setCameraMessage] = useState("");
   const [cameraRetryable, setCameraRetryable] = useState(false);
@@ -149,6 +150,21 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const scannerModeRef = useRef<"Masuk" | "Keluar">("Masuk");
+  const addProductToSale = useCallback((product: Product) => {
+    setSaleCart((current) => {
+      const existing = current.find((line) => line.productId === product.id);
+      if (existing) {
+        return current.map((line) => line.productId === product.id ? { ...line, quantity: line.quantity + 1 } : line);
+      }
+      return [...current, { productId: product.id, quantity: 1 }];
+    });
+    setSaleError("");
+    setManualSaleSearch("");
+    setScannerOpen(false);
+    setReceiptOpen(true);
+    setNotice(`${product.name} ditambahkan ke struk.`);
+  }, []);
+
   const resolveBarcode = useCallback((code: string) => {
     const cleanedCode = code.trim();
     if (!cleanedCode) {
@@ -162,16 +178,7 @@ export default function Home() {
     setCameraMessage("");
     if (product) {
       if (scannerModeRef.current === "Keluar") {
-        setSaleCart((current) => {
-          const existing = current.find((line) => line.productId === product.id);
-          if (existing) {
-            return current.map((line) => line.productId === product.id ? { ...line, quantity: line.quantity + 1 } : line);
-          }
-          return [...current, { productId: product.id, quantity: 1 }];
-        });
-        setSaleError("");
-        setReceiptOpen(true);
-        setNotice(`${product.name} ditambahkan ke struk.`);
+        addProductToSale(product);
       } else {
         setAdjustProduct(product);
         setAdjustMode("Masuk");
@@ -185,13 +192,14 @@ export default function Home() {
       openNewProduct(cleanedCode);
       setNotice("Barcode belum terdaftar. Lengkapi form untuk membuat produk baru.");
     }
-  }, [products]);
+  }, [products, addProductToSale]);
 
   function openScanner(mode: "Masuk" | "Keluar" = "Masuk") {
     scannerModeRef.current = mode;
     setScannerMode(mode);
     setScannerError("");
     setBarcodeInput("");
+    setManualSaleSearch("");
     setCameraMessage("");
     setCameraRetryable(false);
     setCameraAttempt(0);
@@ -210,6 +218,7 @@ export default function Home() {
     scannerModeRef.current = mode;
     setScannerMode(mode);
     setScannerError("");
+    setManualSaleSearch("");
   }
 
   function setSaleQuantity(productId: string, value: string) {
@@ -390,6 +399,13 @@ export default function Home() {
       return matchesQuery && matchesCategory && matchesAlert;
     });
   }, [products, query, categoryFilter, activePage]);
+  const manualSaleResults = useMemo(() => {
+    const search = manualSaleSearch.trim().toLowerCase();
+    if (!search) return [];
+    return products.filter((product) =>
+      [product.name, product.category, product.barcode].some((value) => value.toLowerCase().includes(search)),
+    ).slice(0, 8);
+  }, [products, manualSaleSearch]);
 
   function openNewProduct(barcode = "") {
     setForm({ ...emptyForm, barcode });
@@ -779,6 +795,16 @@ export default function Home() {
             <button type="button" className={scannerMode === "Keluar" ? "selected" : ""} aria-pressed={scannerMode === "Keluar"} onClick={() => changeScannerMode("Keluar")}>Barang keluar</button>
           </div>
           <div className="camera-frame"><video ref={videoRef} muted playsInline aria-label="Pratinjau kamera untuk scan barcode" /><div className="scan-frame"><span /><span /><span /><span /><i /></div><div className="camera-label"><Icon name="camera" size={15} /> <span>{cameraMessage || "Menyiapkan kamera..."}</span>{cameraRetryable && <button type="button" onClick={retryCamera}>Coba lagi</button>}</div></div>
+          {scannerMode === "Keluar" && <div className="manual-sale-search">
+            <label htmlFor="manual-sale-query">Cari produk untuk struk</label>
+            <div className="table-search manual-sale-input"><Icon name="search" size={16} /><input id="manual-sale-query" value={manualSaleSearch} onChange={(event) => setManualSaleSearch(event.target.value)} placeholder="Cari nama atau barcode produk..." autoComplete="off" /></div>
+            {manualSaleSearch.trim() && <div className="manual-sale-results">
+              {manualSaleResults.length ? manualSaleResults.map((product) => <button key={product.id} type="button" className="manual-sale-result" onClick={() => addProductToSale(product)} disabled={product.stock < 1}>
+                <span><strong>{product.name}</strong><small>{product.barcode} · stok {product.stock} {product.unit}</small></span>
+                <span className="manual-sale-result-price">{product.stock < 1 ? "Stok habis" : currency.format(product.sellPrice)}</span>
+              </button>) : <p className="manual-sale-empty">Produk tidak ditemukan.</p>}
+            </div>}
+          </div>}
           <form onSubmit={(event) => { event.preventDefault(); resolveBarcode(barcodeInput); }} className="modal-form scanner-form"><label>Nomor barcode<div className="input-with-action"><input autoFocus value={barcodeInput} onChange={(event) => { setBarcodeInput(event.target.value); setScannerError(""); }} placeholder="Ketik barcode produk..." /><button type="submit" aria-label="Cari barcode"><Icon name="search" size={17} /></button></div></label>{scannerError && <p className="form-error" role="alert">{scannerError}</p>}<p className="scanner-hint"><Icon name="barcode" size={15} />{scannerMode === "Masuk" ? "Barcode baru akan membuka form tambah produk." : "Barcode baru akan membuka form produk; barcode terdaftar ditambahkan ke struk."}</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setScannerOpen(false)}>Batal</button><button type="submit" className="primary-button"><Icon name="scan" size={16} /> Cari produk</button></div></form>
         </section>
       </div>}
