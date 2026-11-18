@@ -762,6 +762,16 @@ export default function Home() {
             <div><p className="eyebrow">TRANSAKSI BARU</p><h2 id="receipt-modal-title">Struk belanja</h2><p>{receiptLines.length} jenis barang · jumlah bisa diubah sebelum disimpan.</p></div>
             <button className="modal-close" aria-label="Tutup struk" onClick={() => setReceiptOpen(false)} disabled={saleSubmitting}><Icon name="close" /></button>
           </div>
+          <div className="manual-sale-search receipt-product-search">
+            <label htmlFor="receipt-product-query">Cari dan tambah barang</label>
+            <div className="table-search manual-sale-input"><Icon name="search" size={16} /><input id="receipt-product-query" value={manualSaleSearch} onChange={(event) => setManualSaleSearch(event.target.value)} placeholder="Cari nama atau barcode produk..." autoComplete="off" disabled={saleSubmitting} /></div>
+            {manualSaleSearch.trim() && <div className="manual-sale-results">
+              {manualSaleResults.length ? manualSaleResults.map((product) => <button key={product.id} type="button" className="manual-sale-result" onClick={() => addProductToSale(product)} disabled={product.stock < 1 || saleSubmitting}>
+                <span><strong>{product.name}</strong><small>{product.barcode} · stok {product.stock} {product.unit}</small></span>
+                <span className="manual-sale-result-price">{product.stock < 1 ? "Stok habis" : currency.format(product.sellPrice)}</span>
+              </button>) : <p className="manual-sale-empty">Produk tidak ditemukan.</p>}
+            </div>}
+          </div>
           {receiptLines.length ? <>
             <div className="receipt-lines">
               {receiptLines.map(({ product, quantity }) => <div className="receipt-line" key={product.id}>
@@ -778,7 +788,7 @@ export default function Home() {
               <div><span>Total belanja</span><strong>{currency.format(receiptTotal)}</strong></div>
               <div className="receipt-profit"><span>Perkiraan keuntungan kotor</span><strong>{currency.format(receiptTotal - receiptCost)}</strong></div>
             </div>
-          </> : <div className="empty-state receipt-empty">Struk masih kosong. Scan barcode barang untuk menambahkannya.</div>}
+          </> : <div className="empty-state receipt-empty">Struk masih kosong. Cari produk di atas atau scan barcode untuk menambahkannya.</div>}
           <div className="modal-actions receipt-actions">
             <button type="button" className="secondary-button" onClick={() => { setSaleCart([]); setSaleError(""); setReceiptOpen(false); }} disabled={saleSubmitting}>Batalkan struk</button>
             <button type="button" className="secondary-button" onClick={() => { setReceiptOpen(false); openScanner("Keluar"); }} disabled={saleSubmitting}><Icon name="scan" size={16} /> Scan barang lain</button>
